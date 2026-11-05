@@ -282,6 +282,12 @@ def main():
             md.append(f"| {n} | {r['median_ms']:.1f} | {r['mean_ms']:.1f} | {r['p95_ms']:.1f} | "
                       f"{r['stdev_ms']:.1f} | {r['max_rss_mb']:.1f} |")
         md.append("")
+    lp = perf["large_patch"]
+    total = {n: setup.get(n, 0.0) * 1000 + lp[n]["median_ms"] for n in cmds}
+    md += ["## Fresh-runner total for a composite action (setup + `large_patch` median)", "",
+           "| impl | total ms |", "|---|--:|"]
+    md += [f"| {n} | {v:.0f} |" for n, v in sorted(total.items(), key=lambda kv: kv[1])]
+    md.append("")
     md += ["## Setup cost on a fresh runner", "",
            "| impl | setup | notes |", "|---|--:|---|",
            "| bash | 0 s | curl + jq preinstalled |",
