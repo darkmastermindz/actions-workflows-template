@@ -1,0 +1,115 @@
+name: CI Ledger (Go)
+description: CI Ledger — attribute a USD cost to every job of a GitHub Actions run; job summary, idempotent PR comment, outputs and JSON report.
+author: CI Ledger
+branding:
+  icon: dollar-sign
+  color: green
+
+inputs:
+  github_token:
+    description: Needs actions:read; pull-requests:write to comment.
+    default: ${{ github.token }}
+  budget_usd:
+    description: Flag the run when its cost exceeds this.
+    default: ""
+  run_id:
+    description: "Run to analyze (default: triggering workflow_run, else current run)."
+    default: ""
+  pr_number:
+    description: PR to comment on (auto-detected).
+    default: ""
+  top_n:
+    description: Max job rows in the table.
+    default: "15"
+  comment:
+    description: Set false to only write the job summary.
+    default: "true"
+  fail_on_budget:
+    description: Exit non-zero when over budget (opt-in).
+    default: "false"
+  rates_json:
+    description: JSON rate overrides.
+    default: ""
+
+outputs:
+  total_cost:
+    description: Run total in USD, 4 decimals (e.g. 0.5620).
+    value: ${{ steps.ledger.outputs.total_cost }}
+  total_minutes:
+    description: Total billable minutes.
+    value: ${{ steps.ledger.outputs.total_minutes }}
+  job_count:
+    description: Number of counted (completed) jobs.
+    value: ${{ steps.ledger.outputs.job_count }}
+  over_budget:
+    description: "true when a budget is set and exceeded, else false."
+    value: ${{ steps.ledger.outputs.over_budget }}
+  report_path:
+    description: Path of the JSON report.
+    value: ${{ steps.ledger.outputs.report_path }}
+
+runs:
+  using: composite
+  steps:
+    # The binary is compiled on first use with the Go toolchain preinstalled on
+    # GitHub-hosted runners (standard library only, no module downloads) and
+    # cached in RUNNER_TEMP for later invocations in the same job. A build
+    # failure degrades to a warning so CI is never broken by the action itself.
+    # Not every hosted image ships Go (e.g. macos-latest on arm64): install it only when missing.
+    - name: Check for Go
+      id: hasgo
+      shell: bash
+      run: |
+        if command -v go >/dev/null 2>&1; then echo "found=true"; else echo "found=false"; fi >> "$GITHUB_OUTPUT"
+    - name: Set up Go
+      if: steps.hasgo.outputs.found != 'true'
+      uses: actions/setup-go@v5
+      with:
+        go-version: stable
+        cache: false
+
+    - name: Build CI Ledger
+      id: build
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CGO_ENABLED: "0"
+        GOTOOLCHAIN: local
+        GOFLAGS: -trimpath
+      run: |
+        tmp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+        action_path="$ACTION_PATH"
+        if command -v cygpath >/dev/null 2>&1; then
+          tmp="$(cygpath -u "$tmp")"; action_path="$(cygpath -u "$action_path")"
+        fi
+        exe="ci-ledger"
+        case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) exe="ci-ledger.exe" ;; esac
+        bin="$tmp/ci-ledger-go/$exe"
+        if [ ! -x "$bin" ]; then
+          if ! command -v go >/dev/null 2>&1; then
+            echo "::warning::CI Ledger could not build (Go toolchain not found); skipping"
+            exit 0
+          fi
+          mkdir -p "$tmp/ci-ledger-go"
+          if ! (cd "$action_path" && go build -ldflags="-s -w" -o "$bin" .) >&2; then
+            echo "::warning::CI Ledger could not build; skipping"
+            exit 0
+          fi
+        fi
+        echo "bin=$bin" >> "$GITHUB_OUTPUT"
+
+    - name: Run CI Ledger
+      id: ledger
+      if: steps.build.outputs.bin != ''
+      shell: bash
+      env:
+        CI_LEDGER_BIN: ${{ steps.build.outputs.bin }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
+        INPUT_BUDGET_USD: ${{ inputs.budget_usd }}
+        INPUT_RUN_ID: ${{ inputs.run_id }}
+        INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+        INPUT_TOP_N: ${{ inputs.top_n }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_FAIL_ON_BUDGET: ${{ inputs.fail_on_budget }}
+        INPUT_RATES_JSON: ${{ inputs.rates_json }}
+      run: '"$CI_LEDGER_BIN"'

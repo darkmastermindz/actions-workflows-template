@@ -1,0 +1,107 @@
+name: Action test
+# End-to-end test of the published composite action (./) and the three
+# standalone engines against the real GitHub API, on all three hosted OSes.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  pull-requests: write
+
+jobs:
+  # Cheap jobs on every OS so the run has something to price.
+  workload:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - shell: bash
+        run: sleep 3 && echo "workload on ${{ matrix.os }}"
+
+  price:
+    needs: workload
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        engine: [root, bash, go, node]
+    runs-on: ${{ matrix.os }}
+    name: price (${{ matrix.engine }}, ${{ matrix.os }})
+    env:
+      # Only one matrix cell comments on the PR; the rest just write summaries.
+      COMMENT: ${{ matrix.engine == 'root' && matrix.os == 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: root
+        if: matrix.engine == 'root'
+        uses: ./
+        with:
+          run_id: ${{ github.run_id }}
+          budget_usd: "0.000001"
+          comment: ${{ env.COMMENT }}
+      - id: bash
+        if: matrix.engine == 'bash'
+        uses: ./implementations/bash
+        with:
+          run_id: ${{ github.run_id }}
+          budget_usd: "0.000001"
+          comment: "false"
+      - id: go
+        if: matrix.engine == 'go'
+        uses: ./implementations/go
+        with:
+          run_id: ${{ github.run_id }}
+          budget_usd: "0.000001"
+          comment: "false"
+      - id: node
+        if: matrix.engine == 'node'
+        uses: ./implementations/node
+        with:
+          run_id: ${{ github.run_id }}
+          budget_usd: "0.000001"
+          comment: "false"
+
+      - name: Verify outputs and report
+        shell: bash
+        env:
+          TOTAL_COST: ${{ steps.root.outputs.total_cost || steps.bash.outputs.total_cost || steps.go.outputs.total_cost || steps.node.outputs.total_cost }}
+          TOTAL_MINUTES: ${{ steps.root.outputs.total_minutes || steps.bash.outputs.total_minutes || steps.go.outputs.total_minutes || steps.node.outputs.total_minutes }}
+          JOB_COUNT: ${{ steps.root.outputs.job_count || steps.bash.outputs.job_count || steps.go.outputs.job_count || steps.node.outputs.job_count }}
+          OVER_BUDGET: ${{ steps.root.outputs.over_budget || steps.bash.outputs.over_budget || steps.go.outputs.over_budget || steps.node.outputs.over_budget }}
+          REPORT_PATH: ${{ steps.root.outputs.report_path || steps.bash.outputs.report_path || steps.go.outputs.report_path || steps.node.outputs.report_path }}
+        run: |
+          set -euo pipefail
+          echo "total_cost=$TOTAL_COST total_minutes=$TOTAL_MINUTES job_count=$JOB_COUNT over_budget=$OVER_BUDGET"
+          echo "report_path=$REPORT_PATH"
+          [[ "$TOTAL_COST" =~ ^[0-9]+\.[0-9]{4}$ ]] || { echo "::error::bad total_cost '$TOTAL_COST'"; exit 1; }
+          (( JOB_COUNT >= 3 )) || { echo "::error::expected >= 3 completed workload jobs, got '$JOB_COUNT'"; exit 1; }
+          (( TOTAL_MINUTES >= 3 )) || { echo "::error::expected >= 3 billable minutes, got '$TOTAL_MINUTES'"; exit 1; }
+          [[ "$OVER_BUDGET" == "true" ]] || { echo "::error::expected over_budget=true with a 1 micro-dollar budget"; exit 1; }
+          node -e '
+            const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            const oses = new Set(r.jobs.map(j => j.os));
+            for (const os of ["linux", "windows", "macos"])
+              if (!oses.has(os)) throw new Error("no " + os + " job priced: " + [...oses]);
+            if (r.job_count !== r.jobs.length) throw new Error("job_count mismatch");
+            console.log("report ok:", r.job_count, "jobs,", r.total_cost_usd, "USD, oses", [...oses].join(","));
+          ' "$REPORT_PATH"
+
+  # The action must never fail CI on API errors: point it at a run that doesn't exist.
+  graceful-failure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: ledger
+        uses: ./
+        with:
+          run_id: "1"
+          comment: "false"
+      - shell: bash
+        run: |
+          [[ -z "${{ steps.ledger.outputs.total_cost }}" ]] || { echo "::error::expected no outputs on API failure"; exit 1; }
+          echo "action degraded gracefully"

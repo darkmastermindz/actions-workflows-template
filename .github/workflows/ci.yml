@@ -1,0 +1,36 @@
+name: CI
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        impl: [bash, go, node]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash tests
+        if: matrix.impl == 'bash'
+        run: SKIP_SLOW=1 implementations/bash/tests/run-tests.sh
+      - name: go tests
+        if: matrix.impl == 'go'
+        working-directory: implementations/go
+        run: go vet ./... && go test ./...
+      - name: node tests
+        if: matrix.impl == 'node'
+        working-directory: implementations/node
+        run: node --test
+
+  conformance-and-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 benchmark/bench.py --runs 10 --out "$RUNNER_TEMP/results"
+      - run: cat "$RUNNER_TEMP/results.md" >> "$GITHUB_STEP_SUMMARY"

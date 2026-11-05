@@ -1,0 +1,73 @@
+name: CI Ledger (bash)
+description: "CI Ledger - attribute a USD cost to every job of a GitHub Actions run and report it as a job summary, PR comment, outputs and JSON."
+author: CI Ledger
+branding:
+  icon: dollar-sign
+  color: green
+
+inputs:
+  github_token:
+    description: "Token with actions:read; pull-requests:write to comment."
+    required: false
+    default: ${{ github.token }}
+  budget_usd:
+    description: "Flag the run when its cost exceeds this (USD, decimal)."
+    required: false
+    default: ""
+  run_id:
+    description: "Run to analyze (default: triggering workflow_run, else current run)."
+    required: false
+    default: ""
+  pr_number:
+    description: "PR to comment on (auto-detected)."
+    required: false
+    default: ""
+  top_n:
+    description: "Max job rows in the table."
+    required: false
+    default: "15"
+  comment:
+    description: "Set false to only write the job summary."
+    required: false
+    default: "true"
+  fail_on_budget:
+    description: "Exit non-zero when over budget (opt-in)."
+    required: false
+    default: "false"
+  rates_json:
+    description: "JSON rate overrides, e.g. {\"standard\":{\"linux\":0.005}}."
+    required: false
+    default: ""
+
+outputs:
+  total_cost:
+    description: "Run total in USD with 4 decimals (e.g. 0.5620)."
+    value: ${{ steps.ledger.outputs.total_cost }}
+  total_minutes:
+    description: "Total billable minutes of counted jobs."
+    value: ${{ steps.ledger.outputs.total_minutes }}
+  job_count:
+    description: "Number of counted (completed) jobs."
+    value: ${{ steps.ledger.outputs.job_count }}
+  over_budget:
+    description: "true when a budget is set and the run exceeds it, else false."
+    value: ${{ steps.ledger.outputs.over_budget }}
+  report_path:
+    description: "Path of the machine-readable JSON report."
+    value: ${{ steps.ledger.outputs.report_path }}
+
+runs:
+  using: composite
+  steps:
+    - id: ledger
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/ci-ledger.sh"
+      env:
+        INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
+        INPUT_BUDGET_USD: ${{ inputs.budget_usd }}
+        INPUT_RUN_ID: ${{ inputs.run_id }}
+        INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+        INPUT_TOP_N: ${{ inputs.top_n }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_FAIL_ON_BUDGET: ${{ inputs.fail_on_budget }}
+        INPUT_RATES_JSON: ${{ inputs.rates_json }}
