@@ -55,6 +55,19 @@ runs:
     # GitHub-hosted runners (standard library only, no module downloads) and
     # cached in RUNNER_TEMP for later invocations in the same job. A build
     # failure degrades to a warning so CI is never broken by the action itself.
+    # Not every hosted image ships Go (e.g. macos-latest on arm64): install it only when missing.
+    - name: Check for Go
+      id: hasgo
+      shell: bash
+      run: |
+        if command -v go >/dev/null 2>&1; then echo "found=true"; else echo "found=false"; fi >> "$GITHUB_OUTPUT"
+    - name: Set up Go
+      if: steps.hasgo.outputs.found != 'true'
+      uses: actions/setup-go@v5
+      with:
+        go-version: stable
+        cache: false
+
     - name: Build CI Ledger
       id: build
       shell: bash

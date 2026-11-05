@@ -231,8 +231,11 @@ trim() { # trim VAR_NAME VALUE (internal names are prefixed to avoid shadowing)
 is_true() {
   local v
   trim v "${1:-}"
-  v=${v,,}
-  [[ $v == true || $v == 1 || $v == yes ]]
+  # bash 3.2 (macOS /bin/bash) has no ${v,,}
+  case $v in
+    [Tt][Rr][Uu][Ee] | 1 | [Yy][Ee][Ss]) return 0 ;;
+  esac
+  return 1
 }
 
 # str_inc VAR_NAME DIGITS: VAR = DIGITS + 1 (arbitrary length)
@@ -337,11 +340,15 @@ ci_ledger_main() {
   local event_file=${GITHUB_EVENT_PATH:-}
   [[ -n $event_file && -f $event_file && -r $event_file ]] || event_file=/dev/null
   local -a pre=()
-  mapfile -t pre < <("${CI_LEDGER_JQ[@]}" -nr --rawfile ev "$event_file" --arg rates "${INPUT_RATES_JSON:-}" \
-    "$CI_LEDGER_JQ_LIB $CI_LEDGER_JQ_PRELUDE" 2>/dev/null)
+  local __line # bash 3.2 (macOS /bin/bash) has no mapfile
+  while IFS= read -r __line || [[ -n $__line ]]; do pre+=("$__line"); done < <(
+    "${CI_LEDGER_JQ[@]}" -nr --rawfile ev "$event_file" --arg rates "${INPUT_RATES_JSON:-}" \
+      "$CI_LEDGER_JQ_LIB $CI_LEDGER_JQ_PRELUDE" 2>/dev/null)
   if ((${#pre[@]} < 4)); then # e.g. unreadable event file: retry with an empty event
-    mapfile -t pre < <("${CI_LEDGER_JQ[@]}" -nr --rawfile ev /dev/null --arg rates "${INPUT_RATES_JSON:-}" \
-      "$CI_LEDGER_JQ_LIB $CI_LEDGER_JQ_PRELUDE")
+    pre=()
+    while IFS= read -r __line || [[ -n $__line ]]; do pre+=("$__line"); done < <(
+      "${CI_LEDGER_JQ[@]}" -nr --rawfile ev /dev/null --arg rates "${INPUT_RATES_JSON:-}" \
+        "$CI_LEDGER_JQ_LIB $CI_LEDGER_JQ_PRELUDE")
   fi
   if ((${#pre[@]} < 4)); then
     echo '::warning::CI Ledger internal error (jq); skipping'

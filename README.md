@@ -55,10 +55,10 @@ Outputs: `total_cost`, `total_minutes`, `job_count`, `over_budget`, `report_path
 All three produce byte-identical output in every conformance scenario. **Go** is
 the fastest once it is running: about 13 ms for 1000 jobs and 300 comments. But a
 composite action has to compile it first, which takes about 9 s on a cold runner,
-unless you commit and maintain binaries for each platform. **Node** runs in about
+unless you commit and maintain binaries for each platform. On `macos-latest`, Go isn't preinstalled, so `actions/setup-go` must also download it first. **Node** runs in about
 65 ms with zero setup, since Node is preinstalled on every hosted runner and the
 code has no dependencies. That gives it the lowest total time on a fresh runner.
 **Bash** also needs no setup, but it is about 3× slower than Node on large runs
-because of the time spent starting `jq` and `curl` processes.
+because of the time spent starting `jq` and `curl` processes. It must also stay compatible with macOS's `/bin/bash` 3.2.
 
 Re-run with `python3 benchmark/bench.py`.
