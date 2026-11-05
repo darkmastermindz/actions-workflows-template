@@ -1,0 +1,15 @@
+{
+  "name": "ci-ledger",
+  "version": "1.0.0",
+  "description": "CI Ledger: attribute a USD cost to every job of a GitHub Actions workflow run.",
+  "main": "index.js",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  }
+}
